@@ -1,0 +1,114 @@
+stages:
+  - test
+  - build-dev
+  - deploy-api-dev
+  - build-uat
+  - deploy-api-uat
+  - build-prod
+  - deploy-api-prod
+
+check:
+  stage: test
+  image: node:latest
+  only:
+    - merge_requests
+  tags:
+    - gitlab-ci
+  cache:
+    paths:
+      - node_modules
+  script:
+    - git submodule sync --recursive
+    - git submodule update --init --recursive
+
+build_dev_image:
+  stage: build-dev
+  tags:
+    - docker-build
+  script:
+    - docker info
+    - docker login -u laressocial -p $REGISTRY_PASS rredbluelares.lares-example.com
+    - export KUBECONFIG=~/.kube/config-prod
+    - git submodule sync --recursive
+    - git submodule update --init --recursive    
+    - docker build -f deployments/docker/dev/Dockerfile --no-cache -t rredbluelares.lares-example.com/service_request/service_request:$CI_COMMIT_REF_SLUG-$CI_PIPELINE_ID .
+    - docker push rredbluelares.lares-example.com/service_request/service_request:$CI_COMMIT_REF_SLUG-$CI_PIPELINE_ID
+    - docker images -a | grep "service_request" | grep -v "base" | awk '{print $3}' | xargs docker rmi -f
+  only:
+    - dev
+
+deploy_dev_pods:
+  stage: deploy-api-dev
+  tags:
+    - docker-build
+  script:
+    - docker info
+    - docker login -u laressocial -p S3curePassw0rd rredbluelares.lares-example.com
+    - export KUBECONFIG=~/.kube/config-prod
+    - sed -i 's/IMAGETAG/'"$CI_COMMIT_REF_SLUG-$CI_PIPELINE_ID"'/g' deployments/kubernetes/dev/deployment.yaml
+    - kubectl apply -f deployments/kubernetes/dev/
+    - kubectl rollout status --namespace=service-request deployment dev-service-request
+  only:
+    - dev
+
+build_uat_image:
+  stage: build-uat
+  tags:
+    - docker-build
+  script:
+    - docker info
+    - docker login -u laressocial -p $REGISTRY_PASS rredbluelares.lares-example.com
+    - export KUBECONFIG=~/.kube/config-prod
+    - git submodule sync --recursive
+    - git submodule update --init --recursive    
+    - docker build -f deployments/docker/uat/Dockerfile --no-cache -t rredbluelares.lares-example.com/service_request/service_request:$CI_COMMIT_REF_SLUG-$CI_PIPELINE_ID .
+    - docker push rredbluelares.lares-example.com/service_request/service_request:$CI_COMMIT_REF_SLUG-$CI_PIPELINE_ID
+    - docker images -a | grep "service_request" | grep -v "base" | awk '{print $3}' | xargs docker rmi -f
+  only:
+    - uat
+
+deploy_uat_pods:
+  stage: deploy-api-uat
+  tags:
+    - docker-build
+  script:
+    - docker info
+    - docker login -u laressocial -p $REGISTRY_PASS rredbluelares.lares-example.com
+    - export KUBECONFIG=~/.kube/config-prod
+    - sed -i 's/IMAGETAG/'"$CI_COMMIT_REF_SLUG-$CI_PIPELINE_ID"'/g' deployments/kubernetes/uat/deployment.yaml
+    - kubectl apply -f deployments/kubernetes/uat/
+    - kubectl rollout status --namespace=service-request deployment uat-service-request
+  only:
+    - uat
+
+build_prod_image:
+  stage: build-prod
+  tags:
+    - docker-build
+  script:
+    - docker info
+    - docker login -u laressocial -p $REGISTRY_PASS rredbluelares.lares-example.com
+    - export KUBECONFIG=~/.kube/config-prod
+    - git submodule sync --recursive
+    - git submodule update --init --recursive
+    - docker build -f deployments/docker/prod/Dockerfile --no-cache -t rredbluelares.lares-example.com/service_request/service_request:$CI_COMMIT_REF_SLUG-$CI_PIPELINE_ID .
+    - docker push rredbluelares.lares-example.com/service_request/service_request:$CI_COMMIT_REF_SLUG-$CI_PIPELINE_ID
+    - docker images -a | grep "service_request" | grep -v "base" | awk '{print $3}' | xargs docker rmi -f
+  only:
+    - prod
+  when: manual
+
+deploy_prod_pods:
+  stage: deploy-api-prod
+  tags:
+    - docker-build
+  script:
+    - docker info
+    - docker login -u laressocial -p $REGISTRY_PASS rredbluelares.lares-example.com
+    - export KUBECONFIG=~/.kube/config-prod
+    - sed -i 's/IMAGETAG/'"$CI_COMMIT_REF_SLUG-$CI_PIPELINE_ID"'/g' deployments/kubernetes/prod/deployment.yaml
+    - kubectl apply -f deployments/kubernetes/prod/
+    - kubectl rollout status --namespace=service-request deployment prod-service-request
+  only:
+    - prod
+  when: manual
